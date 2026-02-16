@@ -57,16 +57,9 @@ pre-commit run --all-files
 ```
 .
 ├── src/              # Source code
-├── tests/            # Test files
 ├── data/             # Data files
 ├── pyproject.toml    # Project configuration
 └── README.md         # This file
-```
-
-## Running Tests
-
-```bash
-pytest
 ```
 
 ## Code Quality
@@ -75,6 +68,5 @@ This project uses:
 - **black** for code formatting
 - **ruff** for linting
 - **mypy** for type checking
-- **pytest** for testing
 
 All checks run automatically via pre-commit hooks.
