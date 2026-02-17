@@ -137,6 +137,5 @@ dmypy.json
 Thumbs.db
 
 # Project specific
-data/
-*.parquet
-*.csv
+data/bronze_datasets/
+data/silver_datasets/
