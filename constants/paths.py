@@ -5,6 +5,9 @@ from pathlib import Path
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent
 
+# Config directory
+CONFIG_DIR = PROJECT_ROOT / "config"
+
 # Data directory
 DATA_DIR = PROJECT_ROOT / "data"
 BRONZE_DATASETS_DIR = DATA_DIR / "bronze_datasets"
