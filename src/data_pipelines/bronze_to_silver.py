@@ -11,6 +11,7 @@ from constants.departments import DEPARTMENTS_TO_EXCLUDE  # noqa: E402
 from constants.paths import (  # noqa: E402
     BARLEY_YIELD_CSV,
     CLIMATE_DATA_PARQUET,
+    COMMUNES_CSV,
     SILVER_DATASETS_DIR,
 )
 from utils.logger import logger  # noqa: E402
@@ -255,6 +256,60 @@ def remove_rows_with_nan_metrics(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtered
 
 
+def compute_department_altitude(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute weighted average altitude per department from communes data.
+
+    Extracts the 2-character department code from code_insee, then computes
+    the weighted average of altitude_moyenne using superficie_km2 as weight.
+    Also includes a normalized department name for matching with other datasets.
+
+    Args:
+        df: Communes dataframe with code_insee, dep_code, dep_nom,
+            altitude_moyenne, superficie_km2
+
+    Returns:
+        Dataframe with columns: code, department, altitude_moyenne
+    """
+    import unicodedata
+
+    df = df.copy()
+
+    # Extract department code (first 2 characters of code_insee)
+    df["code"] = df["code_insee"].astype(str).str[:2]
+
+    # Drop rows where altitude or surface area is missing
+    df = df.dropna(subset=["altitude_moyenne", "superficie_km2"])
+    df = df[df["superficie_km2"] > 0]
+
+    # Weighted average: sum(altitude * surface) / sum(surface)
+    def weighted_avg(group: pd.DataFrame) -> float:
+        return (group["altitude_moyenne"] * group["superficie_km2"]).sum() / group[
+            "superficie_km2"
+        ].sum()
+
+    result = df.groupby("code").apply(weighted_avg, include_groups=False).reset_index()
+    result.columns = ["code", "altitude_moyenne"]
+    result["altitude_moyenne"] = result["altitude_moyenne"].round(2)
+
+    # Build code → normalized department name mapping from dep_code/dep_nom
+    name_map = df[["code", "dep_nom"]].drop_duplicates(subset=["code"]).sort_values("code")
+
+    def _normalize_dep_name(name: str) -> str:
+        """Normalize French department name to match climate data format."""
+        # Remove accents
+        nfkd = unicodedata.normalize("NFKD", name)
+        ascii_name = "".join(c for c in nfkd if not unicodedata.combining(c))
+        # Lowercase, replace hyphens/spaces/apostrophes with underscore
+        return ascii_name.strip().lower().replace("-", "_").replace("'", "_").replace(" ", "_")
+
+    name_map["department"] = name_map["dep_nom"].apply(_normalize_dep_name)
+    result = result.merge(name_map[["code", "department"]], on="code", how="left")
+
+    logger.info(f"Computed weighted avg altitude for {len(result)} departments")
+
+    return result[["code", "department", "altitude_moyenne"]]
+
+
 def bronze_to_silver():
     """Pipeline to transform bronze data to silver data.
 
@@ -296,39 +351,54 @@ def bronze_to_silver():
     logger.info("Processing barley yield data")
     processed_barley_df = process_barley_yield_data(barley_df)
 
-    # 5. Remove rows with 0 or NaN for production
+    # 6. Remove rows with 0 or NaN for production
     logger.info("Removing rows with 0 or NaN production")
     processed_barley_df = remove_invalid_production_rows(processed_barley_df)
 
-    # 6. Write processed data to silver
+    # 7. Write processed data to silver
     silver_barley_path = SILVER_DATASETS_DIR / "barley_yield_processed.parquet"
     logger.info(f"Writing processed barley yield data to {silver_barley_path}")
     processed_barley_df.to_parquet(silver_barley_path, index=False)
 
     logger.success(f"Barley yield data processing complete. Shape: {processed_barley_df.shape}")
 
-    # 7. Read climate data from bronze
+    # 5. Read climate data from bronze
     logger.info(f"Reading climate data from {CLIMATE_DATA_PARQUET}")
     climate_df = pd.read_parquet(CLIMATE_DATA_PARQUET)
 
-    # 8. Normalize department names
+    # 6. Normalize department names
     logger.info("Normalizing climate department names")
     climate_df = normalize_climate_department_names(climate_df)
 
-    # 9. Process climate data (pivot metric column)
+    # 7. Process climate data (pivot metric column)
     logger.info("Processing climate data")
     processed_climate_df = process_climate_data(climate_df)
 
-    # 10. Remove rows with NaN in any metric column
+    # 8. Remove rows with NaN in any metric column
     logger.info("Removing rows with NaN in metric columns")
     processed_climate_df = remove_rows_with_nan_metrics(processed_climate_df)
 
-    # 11. Write processed climate data to silver
+    # 9. Write processed climate data to silver
     silver_climate_path = SILVER_DATASETS_DIR / "climate_data_processed.parquet"
     logger.info(f"Writing processed climate data to {silver_climate_path}")
     processed_climate_df.to_parquet(silver_climate_path, index=False)
 
     logger.success(f"Climate data processing complete. Shape: {processed_climate_df.shape}")
+
+    # 10. Read communes data from bronze
+    logger.info(f"Reading communes data from {COMMUNES_CSV}")
+    communes_df = pd.read_csv(COMMUNES_CSV, low_memory=False)
+
+    # 11. Compute weighted average altitude per department
+    logger.info("Computing weighted average altitude per department")
+    dept_altitude_df = compute_department_altitude(communes_df)
+
+    # 12. Write department altitude data to silver
+    silver_altitude_path = SILVER_DATASETS_DIR / "department_altitude.parquet"
+    logger.info(f"Writing department altitude data to {silver_altitude_path}")
+    dept_altitude_df.to_parquet(silver_altitude_path, index=False)
+
+    logger.success(f"Department altitude processing complete. Shape: {dept_altitude_df.shape}")
 
 
 if __name__ == "__main__":
