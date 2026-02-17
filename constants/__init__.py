@@ -1,5 +1,6 @@
 """Constants package."""
 
+from .departments import DEPARTMENTS_TO_EXCLUDE
 from .paths import (
     BARLEY_YIELD_CSV,
     CLIMATE_DATA_PARQUET,
@@ -12,4 +13,5 @@ __all__ = [
     "DATA_DIR",
     "BARLEY_YIELD_CSV",
     "CLIMATE_DATA_PARQUET",
+    "DEPARTMENTS_TO_EXCLUDE",
 ]

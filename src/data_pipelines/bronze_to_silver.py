@@ -7,8 +7,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import pandas as pd  # noqa: E402
 
+from constants.departments import DEPARTMENTS_TO_EXCLUDE  # noqa: E402
 from constants.paths import (  # noqa: E402
     BARLEY_YIELD_CSV,
+    CLIMATE_DATA_PARQUET,
     SILVER_DATASETS_DIR,
 )
 from utils.logger import logger  # noqa: E402
@@ -61,6 +63,67 @@ def process_barley_yield_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def normalize_barley_department_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize department names in barley dataset.
+
+    Strips whitespace and converts to lowercase for consistent matching.
+
+    Args:
+        df: Barley yield dataframe with 'department' column
+
+    Returns:
+        Dataframe with normalized department names
+    """
+    df = df.copy()
+    if "department" in df.columns:
+        initial_unique = df["department"].nunique()
+        df["department"] = df["department"].str.strip().str.lower()
+        final_unique = df["department"].nunique()
+        logger.info(
+            f"Normalized barley department names. "
+            f"Unique departments: {initial_unique} -> {final_unique}"
+        )
+    else:
+        logger.warning("'department' column not found in barley dataframe")
+    return df
+
+
+def remove_excluded_departments(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove departments that are not present in climate data.
+
+    Args:
+        df: Barley yield dataframe with normalized 'department' column
+
+    Returns:
+        Dataframe with excluded departments removed
+    """
+    df = df.copy()
+    if "department" not in df.columns:
+        logger.warning("'department' column not found in dataframe")
+        return df
+
+    initial_shape = df.shape[0]
+    initial_departments = df["department"].nunique()
+
+    # Remove rows with excluded departments
+    df_filtered = df[~df["department"].isin(DEPARTMENTS_TO_EXCLUDE)].copy()
+
+    removed_count = initial_shape - df_filtered.shape[0]
+    final_departments = df_filtered["department"].nunique()
+
+    if removed_count > 0:
+        num_excluded = len(DEPARTMENTS_TO_EXCLUDE)
+        logger.info(
+            f"Removed {removed_count} rows from {num_excluded} excluded departments. "
+            f"Departments: {initial_departments} -> {final_departments}"
+        )
+        logger.info(f"Excluded departments: {DEPARTMENTS_TO_EXCLUDE}")
+    else:
+        logger.info("No rows from excluded departments found")
+
+    return df_filtered
+
+
 def remove_invalid_production_rows(df: pd.DataFrame) -> pd.DataFrame:
     """Remove rows with 0 or NaN for production.
 
@@ -77,6 +140,118 @@ def remove_invalid_production_rows(df: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"Removed {removed_count} rows with 0 or NaN production.")
     else:
         logger.info("No rows with 0 or NaN production found")
+    return df_filtered
+
+
+def process_climate_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Process climate data by pivoting metric column into separate columns.
+
+    Merges rows by matching on all columns except 'metric' and 'value', then
+    converts the 'metric' column values into new column names with 'value' as
+    the corresponding values. The original 'metric' and 'value' columns are
+    dropped after pivoting.
+
+    Args:
+        df: Raw climate dataframe with 'metric' and 'value' columns
+
+    Returns:
+        Processed dataframe with metric values as columns
+    """
+    df = df.copy()
+
+    # Identify index columns (all columns except 'metric' and 'value')
+    index_cols = [col for col in df.columns if col not in ["metric", "value"]]
+
+    # Log the pivot operation
+    unique_metrics = df["metric"].unique()
+    logger.info(
+        f"Pivoting climate data: {len(unique_metrics)} metrics found: {list(unique_metrics)}"
+    )
+    logger.info(f"Using {len(index_cols)} index columns: {index_cols}")
+
+    # Pivot the dataframe
+    df_pivoted = df.pivot_table(
+        index=index_cols,
+        columns="metric",
+        values="value",
+        aggfunc="first",  # Use first in case of duplicates
+    ).reset_index()
+
+    # Flatten column names if multi-index
+    if isinstance(df_pivoted.columns, pd.MultiIndex):
+        df_pivoted.columns = [col[0] if col[1] == "" else col[1] for col in df_pivoted.columns]
+    else:
+        # Rename columns to remove 'metric' level if present
+        df_pivoted.columns.name = None
+
+    logger.info(f"Climate data pivoted. Shape: {df.shape} -> {df_pivoted.shape}")
+
+    return df_pivoted
+
+
+def normalize_climate_department_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize department names in climate dataset.
+
+    Strips whitespace and converts to lowercase for consistent matching.
+
+    Args:
+        df: Climate dataframe with 'nom_dep' column
+
+    Returns:
+        Dataframe with normalized department names
+    """
+    df = df.copy()
+    if "nom_dep" in df.columns:
+        initial_unique = df["nom_dep"].nunique()
+        df["nom_dep"] = df["nom_dep"].str.strip().str.lower()
+        final_unique = df["nom_dep"].nunique()
+        logger.info(
+            f"Normalized climate department names. "
+            f"Unique departments: {initial_unique} -> {final_unique}"
+        )
+    else:
+        logger.warning("'nom_dep' column not found in climate dataframe")
+    return df
+
+
+def remove_rows_with_nan_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove rows with NaN values in any metric column.
+
+    Args:
+        df: Processed climate dataframe with metric columns
+
+    Returns:
+        Dataframe with rows having NaN in any metric column removed
+    """
+    # Define metric columns
+    metric_columns = [
+        "daily_maximum_near_surface_air_temperature",
+        "near_surface_air_temperature",
+        "precipitation",
+    ]
+
+    # Check which metric columns exist in the dataframe
+    existing_metric_cols = [col for col in metric_columns if col in df.columns]
+
+    if not existing_metric_cols:
+        logger.warning("No metric columns found in dataframe")
+        return df
+
+    initial_shape = df.shape[0]
+
+    # Remove rows with NaN in any metric column
+    df_filtered = df.dropna(subset=existing_metric_cols).copy()
+
+    removed_count = initial_shape - df_filtered.shape[0]
+    if removed_count > 0:
+        remaining_rows = df_filtered.shape[0]
+        logger.info(
+            f"Removed {removed_count} rows with NaN in metric columns. "
+            f"Remaining rows: {remaining_rows}"
+        )
+    else:
+        logger.info("No rows with NaN in metric columns found")
+
     return df_filtered
 
 
@@ -109,20 +284,51 @@ def bronze_to_silver():
     logger.info(f"Reading barley yield data from {BARLEY_YIELD_CSV}")
     barley_df = pd.read_csv(BARLEY_YIELD_CSV, sep=";")
 
-    # 2. Process barley yield data (fill missing values)
+    # 2. Normalize department names
+    logger.info("Normalizing barley department names")
+    barley_df = normalize_barley_department_names(barley_df)
+
+    # 3. Remove excluded departments (not in climate data)
+    logger.info("Removing excluded departments")
+    barley_df = remove_excluded_departments(barley_df)
+
+    # 4. Process barley yield data (fill missing values)
     logger.info("Processing barley yield data")
     processed_barley_df = process_barley_yield_data(barley_df)
 
-    # 3. Remove rows with 0 or NaN for production
+    # 5. Remove rows with 0 or NaN for production
     logger.info("Removing rows with 0 or NaN production")
     processed_barley_df = remove_invalid_production_rows(processed_barley_df)
 
-    # 4. Write processed data to silver
+    # 6. Write processed data to silver
     silver_barley_path = SILVER_DATASETS_DIR / "barley_yield_processed.parquet"
     logger.info(f"Writing processed barley yield data to {silver_barley_path}")
     processed_barley_df.to_parquet(silver_barley_path, index=False)
 
     logger.success(f"Barley yield data processing complete. Shape: {processed_barley_df.shape}")
+
+    # 7. Read climate data from bronze
+    logger.info(f"Reading climate data from {CLIMATE_DATA_PARQUET}")
+    climate_df = pd.read_parquet(CLIMATE_DATA_PARQUET)
+
+    # 8. Normalize department names
+    logger.info("Normalizing climate department names")
+    climate_df = normalize_climate_department_names(climate_df)
+
+    # 9. Process climate data (pivot metric column)
+    logger.info("Processing climate data")
+    processed_climate_df = process_climate_data(climate_df)
+
+    # 10. Remove rows with NaN in any metric column
+    logger.info("Removing rows with NaN in metric columns")
+    processed_climate_df = remove_rows_with_nan_metrics(processed_climate_df)
+
+    # 11. Write processed climate data to silver
+    silver_climate_path = SILVER_DATASETS_DIR / "climate_data_processed.parquet"
+    logger.info(f"Writing processed climate data to {silver_climate_path}")
+    processed_climate_df.to_parquet(silver_climate_path, index=False)
+
+    logger.success(f"Climate data processing complete. Shape: {processed_climate_df.shape}")
 
 
 if __name__ == "__main__":
