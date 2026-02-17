@@ -61,6 +61,25 @@ def process_barley_yield_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def remove_invalid_production_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove rows with 0 or NaN for production.
+
+    Args:
+        df: Dataframe with production column
+
+    Returns:
+        Dataframe with rows having 0 or NaN production removed
+    """
+    initial_shape = df.shape[0]
+    df_filtered = df[(df["production"].notna()) & (df["production"] != 0)].copy()
+    removed_count = initial_shape - df_filtered.shape[0]
+    if removed_count > 0:
+        logger.info(f"Removed {removed_count} rows with 0 or NaN production.")
+    else:
+        logger.info("No rows with 0 or NaN production found")
+    return df_filtered
+
+
 def bronze_to_silver():
     """Pipeline to transform bronze data to silver data.
 
@@ -94,7 +113,11 @@ def bronze_to_silver():
     logger.info("Processing barley yield data")
     processed_barley_df = process_barley_yield_data(barley_df)
 
-    # 3. Write processed data to silver
+    # 3. Remove rows with 0 or NaN for production
+    logger.info("Removing rows with 0 or NaN production")
+    processed_barley_df = remove_invalid_production_rows(processed_barley_df)
+
+    # 4. Write processed data to silver
     silver_barley_path = SILVER_DATASETS_DIR / "barley_yield_processed.parquet"
     logger.info(f"Writing processed barley yield data to {silver_barley_path}")
     processed_barley_df.to_parquet(silver_barley_path, index=False)
