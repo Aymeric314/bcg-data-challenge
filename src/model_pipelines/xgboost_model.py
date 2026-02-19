@@ -77,26 +77,10 @@ N_ITER = 50
 def _detect_device() -> tuple[str, str]:
     """Return ``(tree_method, device)`` for XGBoost ≥ 2.0.
 
-    XGBoost 2.0+ replaced ``tree_method='gpu_hist'`` with
-    ``tree_method='hist', device='cuda'``.
+    For this dataset (~2,800 rows) CPU is fast enough and avoids
+    device-mismatch warnings from sklearn's cross-validation loop
+    (which passes numpy arrays on CPU to a CUDA-trained model).
     """
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            gpu_name = result.stdout.strip().split("\n")[0]
-            logger.info(f"GPU detected: {gpu_name}. Using GPU acceleration.")
-            return "hist", "cuda"
-    except Exception:
-        pass
-
-    logger.info("No GPU detected. Using CPU.")
     return "hist", "cpu"
 
 
