@@ -136,7 +136,6 @@ dmypy.json
 .DS_Store
 Thumbs.db
 
-# Project specific
-data/
-*.parquet
-*.csv
+# Project specific — keep gold datasets tracked, ignore raw/intermediate
+data/bronze_datasets/
+data/silver_datasets/

@@ -1,0 +1,10 @@
+# Loguru logging configuration
+# Simple console-only logging for terminal output
+
+handlers:
+  # Console handler - displays logs in terminal
+  console:
+    sink: "sys.stderr"
+    format: "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+    level: "INFO"
+    colorize: true
