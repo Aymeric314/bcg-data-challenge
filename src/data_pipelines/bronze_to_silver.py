@@ -261,17 +261,13 @@ def compute_department_altitude(df: pd.DataFrame) -> pd.DataFrame:
 
     Extracts the 2-character department code from code_insee, then computes
     the weighted average of altitude_moyenne using superficie_km2 as weight.
-    Also includes a normalized department name for matching with other datasets.
 
     Args:
-        df: Communes dataframe with code_insee, dep_code, dep_nom,
-            altitude_moyenne, superficie_km2
+        df: Communes dataframe with code_insee, altitude_moyenne, superficie_km2
 
     Returns:
-        Dataframe with columns: code, department, altitude_moyenne
+        Dataframe with columns: code, altitude_moyenne
     """
-    import unicodedata
-
     df = df.copy()
 
     # Extract department code (first 2 characters of code_insee)
@@ -291,23 +287,9 @@ def compute_department_altitude(df: pd.DataFrame) -> pd.DataFrame:
     result.columns = ["code", "altitude_moyenne"]
     result["altitude_moyenne"] = result["altitude_moyenne"].round(2)
 
-    # Build code → normalized department name mapping from dep_code/dep_nom
-    name_map = df[["code", "dep_nom"]].drop_duplicates(subset=["code"]).sort_values("code")
-
-    def _normalize_dep_name(name: str) -> str:
-        """Normalize French department name to match climate data format."""
-        # Remove accents
-        nfkd = unicodedata.normalize("NFKD", name)
-        ascii_name = "".join(c for c in nfkd if not unicodedata.combining(c))
-        # Lowercase, replace hyphens/spaces/apostrophes with underscore
-        return ascii_name.strip().lower().replace("-", "_").replace("'", "_").replace(" ", "_")
-
-    name_map["department"] = name_map["dep_nom"].apply(_normalize_dep_name)
-    result = result.merge(name_map[["code", "department"]], on="code", how="left")
-
     logger.info(f"Computed weighted avg altitude for {len(result)} departments")
 
-    return result[["code", "department", "altitude_moyenne"]]
+    return result
 
 
 def bronze_to_silver():
